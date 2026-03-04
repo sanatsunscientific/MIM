@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import logo from "./assets/mainlogo.png";
+import logo from "./assets/newlogo.png";
 
 const initialInventory = {
   "MISC Marketing Materials": [
@@ -50,10 +50,10 @@ const initialInventory = {
 };
 
 const CATEGORY_ICONS = {
-  "MISC Marketing Materials": "🎁",
-  "Print Marketing Materials": "📄",
-  "Scrubs & Apparel — Men": "👔",
-  "Scrubs & Apparel — Women": "👗",
+  "MISC Marketing Materials": "",
+  "Print Marketing Materials": "",
+  "Scrubs & Apparel — Men": "",
+  "Scrubs & Apparel — Women": "",
 };
 
 const CATEGORY_COLORS = {
@@ -85,6 +85,8 @@ export default function App() {
   const [addStockQty, setAddStockQty] = useState(0);
   const [newItem, setNewItem] = useState({ name: "", qty: 0, category: "" });
   const [newCategory, setNewCategory] = useState("");
+  const [editingItem, setEditingItem] = useState(null); // {item, category}
+  const [editingCategory, setEditingCategory] = useState(null); // category name
   const [toast, setToast] = useState(null);
   const [log, setLog] = useState(() => {
     const saved = localStorage.getItem("sunInventoryLog");
@@ -187,6 +189,57 @@ export default function App() {
     setNewCategory("");
   };
 
+  const handleDeleteItem = () => {
+    if (!deductModal) return;
+    const { item, category } = deductModal;
+    if (!window.confirm(`Are you sure you want to delete "${item.name}"?`)) return;
+
+    setInventory(prev => ({
+      ...prev,
+      [category]: prev[category].filter(i => i.id !== item.id)
+    }));
+    addToLog({ type: "delete", item: item.name, category });
+    showToast(`Deleted ${item.name}`, "error");
+    setDeductModal(null);
+  };
+
+  const handleEditItem = () => {
+    if (!editingItem) return;
+    const { item, category, newName, newQty } = editingItem;
+    if (!newName.trim()) return;
+
+    setInventory(prev => ({
+      ...prev,
+      [category]: prev[category].map(i => i.id === item.id ? { ...i, name: newName.trim(), qty: parseInt(newQty) || 0 } : i)
+    }));
+    showToast(`Updated ${newName}`);
+    setEditingItem(null);
+    setDeductModal(null);
+  };
+
+  const handleDeleteCategory = (cat) => {
+    if (!window.confirm(`Delete category "${cat}" and all items inside?`)) return;
+    const newInv = { ...inventory };
+    delete newInv[cat];
+    setInventory(newInv);
+    showToast(`Deleted category ${cat}`, "error");
+  };
+
+  const handleEditCategory = () => {
+    if (!editingCategory || !editingCategory.newName.trim()) return;
+    const { oldName, newName } = editingCategory;
+    if (inventory[newName]) { showToast("Category already exists", "error"); return; }
+
+    const newInv = {};
+    Object.keys(inventory).forEach(k => {
+      if (k === oldName) newInv[newName] = inventory[k];
+      else newInv[k] = inventory[k];
+    });
+    setInventory(newInv);
+    showToast(`Renamed to ${newName}`);
+    setEditingCategory(null);
+  };
+
   const handleExport = () => {
     const rows = [
       ["Category", "Item ID", "Item Name", "Quantity"]
@@ -244,45 +297,59 @@ export default function App() {
         .toast { position: fixed; bottom: 28px; right: 28px; z-index: 200; padding: 14px 20px; border-radius: 10px; font-weight: 600; font-size: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.15); animation: slideUp 0.3s ease; }
         @keyframes slideUp { from { opacity:0; transform: translateY(20px); } to { opacity:1; transform: translateY(0); } }
         .qty-badge { font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 500; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+        .header-actions { display: flex; gap: 10px; }
+        .category-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+        .category-scroll::-webkit-scrollbar { display: none; }
+        
+        @media (max-width: 768px) {
+          .stats-grid { grid-template-columns: 1fr; gap: 12px; }
+          .header-actions { gap: 6px; }
+          .header-actions button { padding: 6px 10px; font-size: 11px !important; }
+          .brand-name { display: none; }
+          .main-content { padding: 16px 16px !important; }
+          .stat-card { padding: 14px 18px !important; gap: 12px !important; }
+          .stat-value { font-size: 22px !important; }
+        }
       `}</style>
 
       {/* HEADER */}
-      <div style={{ background: "#002639", color: "#002639", padding: "0 28px", position: "sticky", top: 0, zIndex: 50 }}>
+      <div style={{ background: "#002639", color: "#002639", padding: "0 20px", position: "sticky", top: 0, zIndex: 50, borderBottom: "1px solid #54bfcf" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "40px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "36px" }}>
               <img src={logo} alt="Sun Scientific Logo" style={{ height: "100%", width: "auto", objectFit: "contain" }} />
             </div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 20, letterSpacing: "2.5px", color: "#ffffff", fontFamily: "sans-serif" }}>SUN SCIENTIFIC</div>
+            <div className="brand-name">
+              <div style={{ fontWeight: 600, fontSize: 18, letterSpacing: "2.5px", color: "#ffffff", fontFamily: "sans-serif" }}>SUN SCIENTIFIC</div>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 10 }}>
+          <div className="header-actions">
             <button className="btn-ghost" style={{ color: "#ffffff", borderColor: "#54bfcf", fontSize: 13 }} onClick={handleExport}>
-              📥 Export Report
+              <span className="brand-name">Export</span>
             </button>
             <button className="btn-ghost" style={{ color: "#ffffff", borderColor: "#54bfcf", fontSize: 13 }} onClick={() => setShowLog(true)}>
-              📋 Activity Log
+              <span className="brand-name">Log</span>
             </button>
-            <button className="btn-primary" style={{ background: "#f6ac40", color: "#002639" }} onClick={() => setAddModal(true)}>
-              + Add Item
+            <button className="btn-primary" style={{ background: "#f6ac40", color: "#002639", padding: "8px 14px" }} onClick={() => setAddModal(true)}>
+              + Item
             </button>
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px" }}>
+      <div className="main-content" style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 28px" }}>
         {/* STATS */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
+        <div className="stats-grid">
           {[
-            { label: "Total SKUs", value: totalItems, icon: "🗂️", color: "#002639" },
-            { label: "Total Units", value: totalUnits.toLocaleString(), icon: "📊", color: "#54bfcf" },
-            { label: "Low Stock Items", value: lowStockCount, icon: "⚠️", color: lowStockCount > 0 ? "#f6ac40" : "#54bfcf" },
+            { label: "Total SKUs", value: totalItems, icon: "", color: "#002639" },
+            { label: "Total Units", value: totalUnits.toLocaleString(), icon: "", color: "#54bfcf" },
+            { label: "Low Stock Items", value: lowStockCount, icon: "", color: lowStockCount > 0 ? "#f6ac40" : "#54bfcf" },
           ].map(stat => (
-            <div key={stat.label} style={{ background: "#ffffff", borderRadius: 12, padding: "20px 24px", border: "2px solid #002639", display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{ fontSize: 28 }}>{stat.icon}</div>
+            <div key={stat.label} className="stat-card" style={{ background: "#ffffff", borderRadius: 12, padding: "20px 24px", border: "2px solid #002639", display: "flex", alignItems: "center", gap: 16 }}>
+              {stat.icon && <div style={{ fontSize: 28 }}>{stat.icon}</div>}
               <div>
-                <div style={{ fontSize: 26, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                <div className="stat-value" style={{ fontSize: 26, fontWeight: 700, color: stat.color }}>{stat.value}</div>
                 <div style={{ fontSize: 12, color: "#002639", fontWeight: 500, marginTop: 2 }}>{stat.label}</div>
               </div>
             </div>
@@ -293,26 +360,28 @@ export default function App() {
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
           <input
             className="input-field"
-            placeholder="🔍  Search items..."
+            placeholder="Search items..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ maxWidth: 280 }}
           />
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {categories.map(cat => (
-              <button
-                key={cat}
-                className="cat-tab"
-                onClick={() => setActiveCategory(cat)}
-                style={{
-                  background: activeCategory === cat ? "#002639" : "#ffffff",
-                  color: activeCategory === cat ? "#ffffff" : "#002639",
-                  border: `2px solid #002639`,
-                }}
-              >
-                {cat === "All" ? "All" : (CATEGORY_ICONS[cat] || "📦") + " " + cat.split(" — ")[0].split(" Material")[0]}
-              </button>
-            ))}
+          <div style={{ flex: 1, minWidth: "100%", overflowX: "hidden" }}>
+            <div className="category-scroll">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  className="cat-tab"
+                  onClick={() => setActiveCategory(cat)}
+                  style={{
+                    background: activeCategory === cat ? "#002639" : "#ffffff",
+                    color: activeCategory === cat ? "#ffffff" : "#002639",
+                    border: `2px solid #002639`,
+                  }}
+                >
+                  {cat === "All" ? "All" : (CATEGORY_ICONS[cat] || "") + "" + cat.split(" — ")[0].split(" Material")[0]}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -327,11 +396,12 @@ export default function App() {
             <div key={category} style={{ marginBottom: 32 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ background: colors.light, borderRadius: 8, padding: "6px 10px", fontSize: 18 }}>
-                    {CATEGORY_ICONS[category] || "📦"}
-                  </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 16 }}>{category}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ fontWeight: 700, fontSize: 16 }}>{category}</div>
+                      <button onClick={() => setEditingCategory({ oldName: category, newName: category })} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>✏️</button>
+                      <button onClick={() => handleDeleteCategory(category)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14 }}>🗑️</button>
+                    </div>
                     <div style={{ fontSize: 12, color: "#54bfcf", fontWeight: 600 }}>{filtered.length} items · {filtered.reduce((s, i) => s + i.qty, 0).toLocaleString()} units</div>
                   </div>
                 </div>
@@ -354,21 +424,22 @@ export default function App() {
                       className="item-card"
                       style={{
                         background: "#ffffff",
-                        border: `2px solid ${isOut ? "#f6ac40" : isLow ? "#f6ac40" : "#54bfcf"}`,
+                        border: `2px solid ${isOut || isLow ? "#ff4d4d" : "#54bfcf"}`,
                         borderRadius: 12,
                         padding: "18px 20px",
                         cursor: "pointer",
+                        boxShadow: isOut || isLow ? "0 0 10px rgba(255, 77, 77, 0.2)" : "none"
                       }}
                       onClick={() => openDeduct(item, category)}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#002639", lineHeight: 1.3, flex: 1, paddingRight: 8 }}>{item.name}</div>
-                        {isOut && <span style={{ background: "#ffffff", border: "1px solid #f6ac40", color: "#f6ac40", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>OUT</span>}
-                        {isLow && <span style={{ background: "#ffffff", border: "1px solid #f6ac40", color: "#f6ac40", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>LOW</span>}
+                        {isOut && <span style={{ background: "#ffffff", border: "1px solid #ff4d4d", color: "#ff4d4d", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>OUT</span>}
+                        {isLow && <span style={{ background: "#ffffff", border: "1px solid #ff4d4d", color: "#ff4d4d", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>LOW</span>}
                       </div>
                       <div style={{ marginTop: 14, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
                         <div>
-                          <div className="qty-badge" style={{ color: isOut ? "#f6ac40" : isLow ? "#f6ac40" : "#002639" }}>
+                          <div className="qty-badge" style={{ color: isOut || isLow ? "#ff4d4d" : "#002639" }}>
                             {item.qty.toLocaleString()}
                           </div>
                           <div style={{ fontSize: 11, color: "#54bfcf", fontWeight: 600 }}>units</div>
@@ -387,7 +458,7 @@ export default function App() {
 
         {/* ADD NEW CATEGORY */}
         <div style={{ background: "#ffffff", border: "2px dashed #002639", borderRadius: 12, padding: "20px 24px", marginTop: 12 }}>
-          <div style={{ fontWeight: 600, marginBottom: 12, color: "#002639", fontSize: 14 }}>＋ Create New Category</div>
+          <div style={{ fontWeight: 600, marginBottom: 12, color: "#002639", fontSize: 14 }}>+ Create New Category</div>
           <div style={{ display: "flex", gap: 10 }}>
             <input className="input-field" placeholder="Category name..." value={newCategory} onChange={e => setNewCategory(e.target.value)} style={{ maxWidth: 300 }} onKeyDown={e => e.key === "Enter" && handleAddCategory()} />
             <button className="btn-primary" onClick={handleAddCategory}>Create</button>
@@ -404,7 +475,11 @@ export default function App() {
                 <div style={{ fontWeight: 700, fontSize: 18 }}>{deductModal.item.name}</div>
                 <div style={{ fontSize: 12, color: "#54bfcf", marginTop: 2 }}>{deductModal.category}</div>
               </div>
-              <button onClick={() => setDeductModal(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#ffffff" }}>×</button>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <button onClick={() => setEditingItem({ item: deductModal.item, category: deductModal.category, newName: deductModal.item.name, newQty: deductModal.item.qty })} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer" }}>✏️</button>
+                <button onClick={handleDeleteItem} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer" }}>🗑️</button>
+                <button onClick={() => setDeductModal(null)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#ffffff", marginLeft: 8 }}>×</button>
+              </div>
             </div>
             <div style={{ background: "#002639", border: "2px solid #54bfcf", borderRadius: 10, padding: "16px", textAlign: "center", marginBottom: 22 }}>
               <div style={{ fontSize: 11, color: "#ffffff", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Current Stock</div>
@@ -412,21 +487,63 @@ export default function App() {
             </div>
 
             <div style={{ marginBottom: 18 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 8 }}>📦 Deduct Units (sold/used)</label>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 8 }}>Deduct Units (sold/used)</label>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button onClick={() => setDeductQty(q => Math.max(1, parseInt(q || 1) - 1))} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #54bfcf", background: "#002639", color: "#ffffff", fontSize: 18, cursor: "pointer", fontWeight: 700 }}>−</button>
-                <input className="input-field" type="number" min="1" max={deductModal.item.qty} value={deductQty} onChange={e => setDeductQty(e.target.value)} style={{ textAlign: "center", width: 80, flex: "none" }} />
+                <input className="input-field" type="number" min="1" max={deductModal.item.qty} value={deductQty} onChange={e => setDeductQty(e.target.value)} style={{ textAlign: "center", width: 80, flex: "none", background: "#002639", color: "#ffffff" }} />
                 <button onClick={() => setDeductQty(q => parseInt(q || 1) + 1)} style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #54bfcf", background: "#002639", color: "#ffffff", fontSize: 18, cursor: "pointer", fontWeight: 700 }}>+</button>
                 <button className="btn-danger" style={{ flex: 1 }} onClick={handleDeduct}>Deduct</button>
               </div>
             </div>
 
             <div style={{ borderTop: "2px solid #54bfcf", paddingTop: 18 }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 8 }}>🔄 Restock Units</label>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 8 }}>Restock Units</label>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input className="input-field" type="number" min="1" value={addStockQty} onChange={e => setAddStockQty(e.target.value)} placeholder="Qty to add" style={{ textAlign: "center" }} />
+                <input className="input-field" type="number" min="1" value={addStockQty} onChange={e => setAddStockQty(e.target.value)} placeholder="Qty to add" style={{ textAlign: "center", background: "#002639", color: "#ffffff" }} />
                 <button className="btn-success" style={{ whiteSpace: "nowrap" }} onClick={handleAddStock}>Add Stock</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ITEM MODAL */}
+      {editingItem && (
+        <div className="modal-backdrop" onClick={() => setEditingItem(null)}>
+          <div className="modal-box" style={{ background: "#002639", border: "2px solid #ffffff", color: "#ffffff" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>Edit Item</div>
+              <button onClick={() => setEditingItem(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#ffffff" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 6 }}>Item Name</label>
+                <input className="input-field" value={editingItem.newName} onChange={e => setEditingItem(p => ({ ...p, newName: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 6 }}>Current Quantity</label>
+                <input className="input-field" type="number" value={editingItem.newQty} onChange={e => setEditingItem(p => ({ ...p, newQty: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }} />
+              </div>
+              <button className="btn-primary" style={{ background: "#54bfcf", color: "#ffffff", marginTop: 4 }} onClick={handleEditItem}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CATEGORY MODAL */}
+      {editingCategory && (
+        <div className="modal-backdrop" onClick={() => setEditingCategory(null)}>
+          <div className="modal-box" style={{ background: "#002639", border: "2px solid #ffffff", color: "#ffffff" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>Rename Category</div>
+              <button onClick={() => setEditingCategory(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#ffffff" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 6 }}>Category Name</label>
+                <input className="input-field" value={editingCategory.newName} onChange={e => setEditingCategory(p => ({ ...p, newName: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }} />
+              </div>
+              <button className="btn-primary" style={{ background: "#54bfcf", color: "#ffffff", marginTop: 4 }} onClick={handleEditCategory}>Save Name</button>
             </div>
           </div>
         </div>
@@ -443,16 +560,16 @@ export default function App() {
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
                 <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 6 }}>Item Name *</label>
-                <input className="input-field" placeholder="e.g. Blue Tote Bag" value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} />
+                <input className="input-field" placeholder="e.g. Blue Tote Bag" value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }} />
               </div>
               <div>
                 <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 6 }}>Starting Quantity</label>
-                <input className="input-field" type="number" min="0" value={newItem.qty} onChange={e => setNewItem(p => ({ ...p, qty: e.target.value }))} />
+                <input className="input-field" type="number" min="0" value={newItem.qty} onChange={e => setNewItem(p => ({ ...p, qty: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }} />
               </div>
               {!addItemModal && (
                 <div>
                   <label style={{ fontSize: 13, fontWeight: 600, color: "#ffffff", display: "block", marginBottom: 6 }}>Category *</label>
-                  <select className="input-field" value={newItem.category} onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))}>
+                  <select className="input-field" value={newItem.category} onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }}>
                     <option value="">Select category...</option>
                     {Object.keys(inventory).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
@@ -474,7 +591,7 @@ export default function App() {
         <div className="modal-backdrop" onClick={() => setShowLog(false)}>
           <div className="modal-box" style={{ maxWidth: 500, maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <div style={{ fontWeight: 700, fontSize: 18 }}>📋 Activity Log</div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>Activity Log</div>
               <button onClick={() => setShowLog(false)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#002639" }}>×</button>
             </div>
             {log.length === 0 ? (
@@ -498,10 +615,9 @@ export default function App() {
         </div>
       )}
 
-      {/* TOAST */}
       {toast && (
         <div className="toast" style={{ background: toast.type === "error" ? "#f6ac40" : toast.type === "info" ? "#54bfcf" : "#002639", color: "#ffffff" }}>
-          {toast.type === "error" ? "❌" : toast.type === "info" ? "ℹ️" : "✅"} {toast.msg}
+          {toast.msg}
         </div>
       )}
     </div>
