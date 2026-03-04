@@ -695,13 +695,13 @@ export default function App() {
             </div>
           </div>
         )}
-        {toast && (<div className="toast" style={{ background: toast.type === "error" ? "#f6ac40" : toast.type === "info" ? "#54bfcf" : "#002639", color: "#ffffff" }}>
+        {toast && (
+          <div className="toast" style={{ background: toast.type === "error" ? "#f6ac40" : toast.type === "info" ? "#54bfcf" : "#002639", color: "#ffffff" }}>
             {toast.msg}
           </div>
         )}
       </div>
-      </>)}
+    </>)}
     </div>
   );
 }
-
