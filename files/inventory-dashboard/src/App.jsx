@@ -418,6 +418,10 @@ export default function App() {
   }, [nextIdState]);
 
   useEffect(() => {
+    localStorage.setItem("sunInventoryLog", JSON.stringify(log));
+  }, [log]);
+
+  useEffect(() => {
     localStorage.setItem("sunVendors", JSON.stringify(vendors));
   }, [vendors]);
 
