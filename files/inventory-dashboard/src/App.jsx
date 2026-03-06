@@ -255,7 +255,23 @@ export default function App() {
     return [];
   });
   const [showLog, setShowLog] = useState(false);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [selectedOrderCategory, setSelectedOrderCategory] = useState("");
+  const [showOrderDropdown, setShowOrderDropdown] = useState(false);
   const [loggedIn, setLoggedIn] = useState(() => !!localStorage.getItem("sunAuthUser"));
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest(".order-dropdown-container")) {
+        setShowOrderDropdown(false);
+      }
+    };
+    if (showOrderDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showOrderDropdown]);
   const [loginForm, setLoginForm] = useState({ username: "", password: "", error: "" });
 
   // Low Stock Tab Title Alert
@@ -267,6 +283,23 @@ export default function App() {
       document.title = "Sun Inventory";
     }
   }, [inventory]);
+
+  const allItems = useMemo(() => {
+    const items = [];
+    Object.entries(inventory).forEach(([category, catItems]) => {
+      catItems.forEach(item => {
+        items.push({ name: item.name, category });
+      });
+    });
+    return items.sort((a, b) => a.name.localeCompare(b.name));
+  }, [inventory]);
+
+  const filteredOrderItems = useMemo(() => {
+    if (!orderSearch) return [];
+    return allItems.filter(item =>
+      item.name.toLowerCase().includes(orderSearch.toLowerCase())
+    );
+  }, [allItems, orderSearch]);
 
   const handleLogin = () => {
     const match = USERS.find(
@@ -506,24 +539,52 @@ export default function App() {
   };
 
   const handleAddOrder = () => {
-    if (!newOrder.itemName || !newOrder.qty) return;
-    const order = { ...newOrder, id: Date.now(), qty: parseInt(newOrder.qty), status: "Pending" };
+    if (!orderSearch || !newOrder.qty) return;
+    const order = {
+      ...newOrder,
+      itemName: orderSearch,
+      category: selectedOrderCategory,
+      id: Date.now(),
+      qty: parseInt(newOrder.qty),
+      status: "Pending"
+    };
     setPendingOrders(prev => [order, ...prev]);
-    showToast(`Order logged for ${newOrder.itemName}`);
+    showToast(`Order logged for ${orderSearch}`);
     setOrderModal(false);
+    setOrderSearch("");
+    setSelectedOrderCategory("");
     setNewOrder({ itemName: "", qty: 0, date: new Date().toISOString().split('T')[0] });
   };
 
   const handleReceiveOrder = () => {
     if (!receivingOrder) return;
     const order = receivingOrder;
-    const categoriesList = Object.keys(inventory);
-
-    // Try to find the item in inventory to add stock
-    let found = false;
     const newInv = { ...inventory };
 
-    for (const cat of categoriesList) {
+    // Use the stored category to find the item directly
+    const targetCat = order.category;
+    if (targetCat && newInv[targetCat]) {
+      const itemIdx = newInv[targetCat].findIndex(i => i.name.toLowerCase() === order.itemName.toLowerCase());
+      if (itemIdx !== -1) {
+        newInv[targetCat][itemIdx] = { ...newInv[targetCat][itemIdx], qty: newInv[targetCat][itemIdx].qty + order.qty };
+        setInventory(newInv);
+        setPendingOrders(prev => prev.filter(o => o.id !== order.id));
+        addToLog({
+          type: "restock",
+          item: order.itemName,
+          qty: order.qty,
+          category: "Received Order",
+          details: `Delivered on: ${deliveryDate}`
+        });
+        showToast(`Received ${order.qty} × ${order.itemName}`);
+        setReceivingOrder(null);
+        return;
+      }
+    }
+
+    // Fallback search if category is missing (for legacy orders)
+    let found = false;
+    for (const cat of Object.keys(newInv)) {
       const itemIdx = newInv[cat].findIndex(i => i.name.toLowerCase() === order.itemName.toLowerCase());
       if (itemIdx !== -1) {
         newInv[cat][itemIdx] = { ...newInv[cat][itemIdx], qty: newInv[cat][itemIdx].qty + order.qty };
@@ -540,7 +601,6 @@ export default function App() {
 
     setInventory(newInv);
     setPendingOrders(prev => prev.filter(o => o.id !== order.id));
-    // Log with the specific delivery date confirmed by user
     addToLog({
       type: "restock",
       item: order.itemName,
@@ -951,9 +1011,90 @@ export default function App() {
                 <button onClick={() => setOrderModal(false)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#ffffff" }}>×</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div>
+                <div style={{ position: "relative" }} className="order-dropdown-container">
                   <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Item Name</label>
-                  <input className="input-field" placeholder="e.g. Patient Journey Packets" value={newOrder.itemName} onChange={e => setNewOrder(p => ({ ...p, itemName: e.target.value }))} style={{ background: "#002639", color: "#ffffff" }} />
+                  <input
+                    className="input-field"
+                    placeholder="Search existing or type new..."
+                    value={orderSearch}
+                    onChange={e => {
+                      setOrderSearch(e.target.value);
+                      setShowOrderDropdown(true);
+                      setSelectedOrderCategory("");
+                    }}
+                    onFocus={() => setShowOrderDropdown(true)}
+                    style={{ background: "#002639", color: "#ffffff" }}
+                  />
+                  {showOrderDropdown && (orderSearch || allItems.length > 0) && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        background: "#ffffff",
+                        border: "1.5px solid #54bfcf",
+                        borderRadius: "8px",
+                        marginTop: "4px",
+                        maxHeight: "180px",
+                        overflowY: "auto",
+                        zIndex: 110,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.2)"
+                      }}
+                    >
+                      {(orderSearch === "" ? allItems : filteredOrderItems).map(item => (
+                        <div
+                          key={`${item.name}-${item.category}`}
+                          style={{
+                            padding: "10px 14px",
+                            color: "#002639",
+                            cursor: "pointer",
+                            borderBottom: "1px solid #f0f0f0",
+                            fontSize: "14px",
+                            fontWeight: 500
+                          }}
+                          onClick={() => {
+                            setOrderSearch(item.name);
+                            setSelectedOrderCategory(item.category);
+                            setShowOrderDropdown(false);
+                          }}
+                          onMouseOver={e => e.currentTarget.style.background = "#f8f9fa"}
+                          onMouseOut={e => e.currentTarget.style.background = "#ffffff"}
+                        >
+                          <div style={{ fontWeight: 600 }}>{item.name}</div>
+                          <div style={{ fontSize: "11px", color: "#54bfcf" }}>{item.category}</div>
+                        </div>
+                      ))}
+                      {orderSearch && !allItems.some(n => n.name.toLowerCase() === orderSearch.toLowerCase()) && (
+                        <div
+                          style={{
+                            padding: "12px 14px",
+                            color: "#54bfcf",
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            fontWeight: 700,
+                            background: "rgba(84, 191, 207, 0.05)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px"
+                          }}
+                          onClick={() => {
+                            setNewItem(p => ({ ...p, name: orderSearch }));
+                            setAddModal(true);
+                            setOrderModal(false);
+                            setShowOrderDropdown(false);
+                          }}
+                        >
+                          <span style={{ fontSize: "16px" }}>+</span> Add "{orderSearch}" as New Item
+                        </div>
+                      )}
+                      {(orderSearch === "" ? allItems : filteredOrderItems).length === 0 && !orderSearch && (
+                        <div style={{ padding: "12px", color: "#999", fontSize: "13px", textAlign: "center" }}>
+                          No items in inventory
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Order Quantity</label>
