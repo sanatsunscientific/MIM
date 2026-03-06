@@ -185,8 +185,8 @@ const ApparelCard = ({ baseName, variants, category, openDeduct, colors }) => {
           </div>
           <div style={{ fontSize: 11, color: "#54bfcf", fontWeight: 600 }}>units</div>
         </div>
-        <div style={{ background: "#ffffff", border: `1px solid ${colors.accent}`, color: colors.accent, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 600 }}>
-          Manage
+        <div style={{ background: "#ffffff", border: "1.5px solid #000000", color: "#000000", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700 }}>
+          Update
         </div>
       </div>
     </div>
@@ -790,7 +790,9 @@ export default function App() {
                               <div className="qty-badge" style={{ color: section.color }}>{item.qty}</div>
                               <div style={{ fontSize: 11, color: "#54bfcf", fontWeight: 600 }}>units</div>
                             </div>
-                            <div style={{ fontSize: 11, color: section.color, fontWeight: 700 }}>Restock</div>
+                            <div style={{ background: "#ffffff", border: "1.5px solid #000000", color: "#000000", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700 }}>
+                              Update
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -883,7 +885,7 @@ export default function App() {
                                   </div>
                                   <div style={{ fontSize: 11, color: "#54bfcf", fontWeight: 600 }}>units</div>
                                 </div>
-                                <div style={{ background: "#ffffff", border: `1px solid ${colors.accent}`, color: colors.accent, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 600 }}>
+                                <div style={{ background: "#ffffff", border: "1.5px solid #000000", color: "#000000", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700 }}>
                                   Update
                                 </div>
                               </div>
