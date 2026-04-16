@@ -1,5 +1,7 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import logo from "./assets/newlogo.png";
+import { db } from "./firebase";
+import { doc, setDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 
 const initialInventory = {
   "Branded Merchandise": [
@@ -283,41 +285,17 @@ const ApparelCard = ({ baseName, variants, category, openDeduct, colors }) => {
 };
 
 export default function App() {
-  const [inventory, setInventory] = useState(() => {
-    const saved = localStorage.getItem("sunInventory");
-    const savedVersion = localStorage.getItem("sunInventoryVersion");
+  const [inventory, setInventory] = useState(initialInventory);
+  const [loading, setLoading] = useState(true);
+  // ref to avoid writing back to Firestore when onSnapshot updates state
+  const fromRemote = useRef(false);
+  const lastLocalWrite = useRef({ inventory: 0, pendingOrders: 0, vendors: 0, log: 0, config: 0 });
 
-    if (saved && savedVersion === CONFIG_VERSION) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Object.keys(parsed).length > 0) return parsed;
-      } catch (e) {
-        console.error("Failed to parse saved inventory", e);
-      }
-    }
-    return initialInventory;
-  });
+  const [nextIdState, setNextIdState] = useState(200);
 
-  const [nextIdState, setNextIdState] = useState(() => {
-    const saved = localStorage.getItem("sunInventoryNextId");
-    const savedVersion = localStorage.getItem("sunInventoryVersion");
-    if (saved && savedVersion === CONFIG_VERSION) return parseInt(saved, 10);
-    return 200;
-  });
 
-  // Update version in localStorage after state is initialized
-  useEffect(() => {
-    localStorage.setItem("sunInventoryVersion", CONFIG_VERSION);
-  }, []);
 
-  const [pendingOrders, setPendingOrders] = useState(() => {
-    const saved = localStorage.getItem("sunPendingOrders");
-    const savedVersion = localStorage.getItem("sunInventoryVersion");
-    if (saved && savedVersion === CONFIG_VERSION) {
-      try { return JSON.parse(saved); } catch (e) { return []; }
-    }
-    return [];
-  });
+  const [pendingOrders, setPendingOrders] = useState([]);
 
   const [activeTab, setActiveTab] = useState("Inventory"); // "Inventory" or "Pending"
   const [activeCategory, setActiveCategory] = useState("All");
@@ -335,25 +313,12 @@ export default function App() {
   const [newCategory, setNewCategory] = useState("");
   const [editingItem, setEditingItem] = useState(null); // {item, category, newName, newQty, newSub}
   const [editingCategory, setEditingCategory] = useState(null); // category name
-  const [vendors, setVendors] = useState(() => {
-    const saved = localStorage.getItem("sunVendors");
-    const savedVersion = localStorage.getItem("sunInventoryVersion");
-    if (saved && savedVersion === CONFIG_VERSION) {
-      try { return JSON.parse(saved); } catch (e) { return []; }
-    }
-    return [];
-  });
+  const [vendors, setVendors] = useState([]);
   const [vendorModal, setVendorModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState(null); // vendor object
   const [newVendor, setNewVendor] = useState({ name: "", email: "", company: "", products: "" });
   const [toast, setToast] = useState(null);
-  const [log, setLog] = useState(() => {
-    const saved = localStorage.getItem("sunInventoryLog");
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { return []; }
-    }
-    return [];
-  });
+  const [log, setLog] = useState([]);
   const [showLog, setShowLog] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
   const [selectedOrderCategory, setSelectedOrderCategory] = useState("");
@@ -373,6 +338,88 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showOrderDropdown]);
   const [loginForm, setLoginForm] = useState({ username: "", password: "", error: "" });
+
+  // ------------------------------------------------------------------
+  // 🔥 FIRESTORE: real-time subscriptions (runs once on mount)
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    const DB = "sunInventory";
+    const invRef = doc(db, DB, "inventory");
+    const ordersRef = doc(db, DB, "pendingOrders");
+    const vendorsRef = doc(db, DB, "vendors");
+    const logRef = doc(db, DB, "log");
+    const configRef = doc(db, DB, "config");
+    const BUFFER = 4000; // ms — ignore snapshots triggered by our own writes
+
+    let loaded = 0;
+    const markLoaded = () => { loaded++; if (loaded >= 5) setLoading(false); };
+
+    const unsubInv = onSnapshot(invRef, (snap) => {
+      markLoaded();
+      if (!snap.exists()) {
+        const local = localStorage.getItem("sunInventory");
+        const seed = local ? (() => { try { return JSON.parse(local); } catch { return initialInventory; } })() : initialInventory;
+        setDoc(invRef, { data: seed, lastUpdated: serverTimestamp() });
+        return;
+      }
+      if (Date.now() - lastLocalWrite.current.inventory < BUFFER) return;
+      fromRemote.current = true;
+      setInventory(snap.data().data);
+    });
+
+    const unsubOrders = onSnapshot(ordersRef, (snap) => {
+      markLoaded();
+      if (!snap.exists()) {
+        const local = localStorage.getItem("sunPendingOrders");
+        const seed = local ? (() => { try { return JSON.parse(local); } catch { return []; } })() : [];
+        setDoc(ordersRef, { data: seed, lastUpdated: serverTimestamp() });
+        return;
+      }
+      if (Date.now() - lastLocalWrite.current.pendingOrders < BUFFER) return;
+      fromRemote.current = true;
+      setPendingOrders(snap.data().data);
+    });
+
+    const unsubVendors = onSnapshot(vendorsRef, (snap) => {
+      markLoaded();
+      if (!snap.exists()) {
+        const local = localStorage.getItem("sunVendors");
+        const seed = local ? (() => { try { return JSON.parse(local); } catch { return []; } })() : [];
+        setDoc(vendorsRef, { data: seed, lastUpdated: serverTimestamp() });
+        return;
+      }
+      if (Date.now() - lastLocalWrite.current.vendors < BUFFER) return;
+      fromRemote.current = true;
+      setVendors(snap.data().data);
+    });
+
+    const unsubLog = onSnapshot(logRef, (snap) => {
+      markLoaded();
+      if (!snap.exists()) {
+        const local = localStorage.getItem("sunInventoryLog");
+        const seed = local ? (() => { try { return JSON.parse(local); } catch { return []; } })() : [];
+        setDoc(logRef, { data: seed.slice(0, 500), lastUpdated: serverTimestamp() });
+        return;
+      }
+      if (Date.now() - lastLocalWrite.current.log < BUFFER) return;
+      fromRemote.current = true;
+      setLog(snap.data().data);
+    });
+
+    const unsubConfig = onSnapshot(configRef, (snap) => {
+      markLoaded();
+      if (!snap.exists()) {
+        setDoc(configRef, { nextId: 200, lastUpdated: serverTimestamp() });
+        return;
+      }
+      if (Date.now() - lastLocalWrite.current.config < BUFFER) return;
+      fromRemote.current = true;
+      setNextIdState(snap.data().nextId);
+    });
+
+    return () => { unsubInv(); unsubOrders(); unsubVendors(); unsubLog(); unsubConfig(); };
+  }, []);
+
 
   // Low Stock Tab Title Alert
   useEffect(() => {
@@ -419,24 +466,37 @@ export default function App() {
     setLoggedIn(false);
   };
 
+  // ------------------------------------------------------------------
+  // 🔥 FIRESTORE: write state changes back to cloud
+  // ------------------------------------------------------------------
   useEffect(() => {
-    localStorage.setItem("sunInventory", JSON.stringify(inventory));
+    if (loading || fromRemote.current) { fromRemote.current = false; return; }
+    lastLocalWrite.current.inventory = Date.now();
+    setDoc(doc(db, "sunInventory", "inventory"), { data: inventory, lastUpdated: serverTimestamp() });
   }, [inventory]);
 
   useEffect(() => {
-    localStorage.setItem("sunPendingOrders", JSON.stringify(pendingOrders));
+    if (loading || fromRemote.current) { fromRemote.current = false; return; }
+    lastLocalWrite.current.pendingOrders = Date.now();
+    setDoc(doc(db, "sunInventory", "pendingOrders"), { data: pendingOrders, lastUpdated: serverTimestamp() });
   }, [pendingOrders]);
 
   useEffect(() => {
-    localStorage.setItem("sunInventoryNextId", nextIdState.toString());
+    if (loading || fromRemote.current) { fromRemote.current = false; return; }
+    lastLocalWrite.current.config = Date.now();
+    setDoc(doc(db, "sunInventory", "config"), { nextId: nextIdState, lastUpdated: serverTimestamp() });
   }, [nextIdState]);
 
   useEffect(() => {
-    localStorage.setItem("sunInventoryLog", JSON.stringify(log));
+    if (loading || fromRemote.current) { fromRemote.current = false; return; }
+    lastLocalWrite.current.log = Date.now();
+    setDoc(doc(db, "sunInventory", "log"), { data: log.slice(0, 500), lastUpdated: serverTimestamp() });
   }, [log]);
 
   useEffect(() => {
-    localStorage.setItem("sunVendors", JSON.stringify(vendors));
+    if (loading || fromRemote.current) { fromRemote.current = false; return; }
+    lastLocalWrite.current.vendors = Date.now();
+    setDoc(doc(db, "sunInventory", "vendors"), { data: vendors, lastUpdated: serverTimestamp() });
   }, [vendors]);
 
   const categories = ["All", ...Object.keys(inventory).sort((a, b) => a.localeCompare(b)), "Low Stock", "Out of Stock"];
@@ -770,6 +830,15 @@ export default function App() {
     items.filter(i => i.qty > 0 && i.qty < (i.min !== undefined ? i.min : 20)).map(i => ({ ...i, category: cat }))
   );
 
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: "#002639", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <img src={logo} alt="Sun Scientific" style={{ width: 110, opacity: 0.9 }} />
+      <div style={{ color: "#54bfcf", fontSize: 15, fontWeight: 600, letterSpacing: 1 }}>Loading inventory...</div>
+      <div style={{ width: 44, height: 44, border: "4px solid rgba(84,191,207,0.25)", borderTop: "4px solid #54bfcf", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+    </div>
+  );
+
   return (
     <div style={{ fontFamily: "'DM Sans', 'Segoe UI', sans-serif", minHeight: "100vh", background: "#002639", color: "#ffffff", paddingBottom: "40px" }}>
       <style>{`
@@ -984,7 +1053,7 @@ export default function App() {
                         <div style={{ fontWeight: 700, fontSize: 18, color: section.color }}>{section.name}</div>
                         <div style={{ fontSize: 12, color: section.color, fontWeight: 600 }}>{section.items.length} items requiring attention</div>
                       </div>
-                      
+
                       {Object.keys(groupedItems).sort().map(cat => (
                         <div key={cat} style={{ marginBottom: 24 }}>
                           <div style={{ fontSize: 16, fontWeight: 800, color: section.color, marginBottom: 12, borderBottom: `2px solid ${section.color}40`, paddingBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
@@ -1510,7 +1579,7 @@ export default function App() {
                       if (!groups[dateKey]) groups[dateKey] = [];
                       groups[dateKey].push(entry);
                     });
-                    
+
                     return Object.entries(groups).map(([date, entries]) => (
                       <div key={date}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: "#54bfcf", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, paddingBottom: 4, borderBottom: "1.5px solid #eee" }}>
@@ -1520,13 +1589,13 @@ export default function App() {
                           {entries.map((entry, idx) => (
                             <div key={idx} style={{ background: "#f8f9fa", border: "1px solid #e9ecef", borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                <span style={{ 
-                                  background: entry.type === "deduct" ? "#fff5f5" : "#f0fff4", 
-                                  border: `1px solid ${entry.type === "deduct" ? "#ff4d4d" : "#54bfcf"}`, 
-                                  color: entry.type === "deduct" ? "#ff4d4d" : "#54bfcf", 
-                                  fontSize: 11, 
-                                  fontWeight: 800, 
-                                  padding: "3px 10px", 
+                                <span style={{
+                                  background: entry.type === "deduct" ? "#fff5f5" : "#f0fff4",
+                                  border: `1px solid ${entry.type === "deduct" ? "#ff4d4d" : "#54bfcf"}`,
+                                  color: entry.type === "deduct" ? "#ff4d4d" : "#54bfcf",
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  padding: "3px 10px",
                                   borderRadius: 20,
                                   minWidth: "50px",
                                   textAlign: "center"
