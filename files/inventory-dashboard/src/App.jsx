@@ -499,6 +499,35 @@ export default function App() {
     setDoc(doc(db, "sunInventory", "vendors"), { data: vendors, lastUpdated: serverTimestamp() });
   }, [vendors]);
 
+  // Force-push LOCAL STORAGE data to Firestore
+  const forceSyncToCloud = async () => {
+    const localInv = localStorage.getItem("sunInventory");
+    const localOrders = localStorage.getItem("sunPendingOrders");
+    const localVendors = localStorage.getItem("sunVendors");
+    const localLog = localStorage.getItem("sunInventoryLog");
+    const localNextId = localStorage.getItem("sunInventoryNextId");
+
+    if (!localInv) {
+      showToast("No local data found — nothing to sync!", "error");
+      return;
+    }
+    const parsed = JSON.parse(localInv);
+    const totalSKUs = Object.values(parsed).flat().length;
+    const logCount = localLog ? JSON.parse(localLog).length : 0;
+
+    if (!window.confirm(`Sync LOCAL data to cloud?\n\nThis will REPLACE the cloud database with:\n• ${totalSKUs} SKUs from your browser\n• ${logCount} activity log entries\n\nAll other browsers will update automatically.`)) return;
+
+    const DB = "sunInventory";
+    await Promise.all([
+      setDoc(doc(db, DB, "inventory"), { data: JSON.parse(localInv), lastUpdated: serverTimestamp() }),
+      setDoc(doc(db, DB, "pendingOrders"), { data: localOrders ? JSON.parse(localOrders) : [], lastUpdated: serverTimestamp() }),
+      setDoc(doc(db, DB, "vendors"), { data: localVendors ? JSON.parse(localVendors) : [], lastUpdated: serverTimestamp() }),
+      setDoc(doc(db, DB, "log"), { data: localLog ? JSON.parse(localLog).slice(0, 500) : [], lastUpdated: serverTimestamp() }),
+      setDoc(doc(db, DB, "config"), { nextId: localNextId ? parseInt(localNextId) : 200, lastUpdated: serverTimestamp() }),
+    ]);
+    showToast(`☁️ Cloud updated with your local data (${totalSKUs} SKUs)!`, "success");
+  };
+
   const categories = ["All", ...Object.keys(inventory).sort((a, b) => a.localeCompare(b)), "Low Stock", "Out of Stock"];
 
   const formatDisplayDate = (dateStr) => {
@@ -969,6 +998,15 @@ export default function App() {
               <button className="btn-ghost" style={{ color: "#ff4d4d", borderColor: "#ff4d4d", fontSize: 13 }} onClick={handleLogout}>
                 Logout
               </button>
+              {localStorage.getItem("sunAuthUser") === "admin" && (
+                <button
+                  title="Override cloud database with data on your screen"
+                  style={{ background: "#f6ac40", color: "#002639", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                  onClick={forceSyncToCloud}
+                >
+                  ☁️ Sync to Cloud
+                </button>
+              )}
             </div>
           </div>
         </div>
